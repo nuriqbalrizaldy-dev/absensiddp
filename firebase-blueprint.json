@@ -47,6 +47,13 @@
           "minLength": 2,
           "maxLength": 120
         },
+        "nrik": {
+          "type": "string",
+          "description": "Optional 8-digit participant NRIK number.",
+          "minLength": 0,
+          "maxLength": 8,
+          "pattern": "^([0-9]{8})?$"
+        },
         "position": {
           "type": "string",
           "description": "Participant job position / role.",

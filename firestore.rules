@@ -49,8 +49,9 @@ service cloud.firestore {
 
     function isValidAttendance(data) {
       return data.keys().hasAll(['fullName', 'position', 'sessionDate', 'signatureDataUrl', 'trainingTitle', 'submittedAt']) &&
-        data.keys().hasOnly(['fullName', 'position', 'sessionDate', 'signatureDataUrl', 'trainingTitle', 'submittedAt']) &&
+        data.keys().hasOnly(['fullName', 'nrik', 'position', 'sessionDate', 'signatureDataUrl', 'trainingTitle', 'submittedAt']) &&
         data.fullName is string && data.fullName.size() >= 2 && data.fullName.size() <= 120 &&
+        (!('nrik' in data) || (data.nrik is string && data.nrik.size() <= 8 && (data.nrik == '' || data.nrik.matches('^[0-9]{8}$')))) &&
         data.position is string && data.position.size() >= 2 && data.position.size() <= 120 &&
         data.sessionDate is string && data.sessionDate.size() == 10 &&
         data.sessionDate.matches('^[0-3][0-9]/[0-1][0-9]/20[2-9][0-9]$') &&

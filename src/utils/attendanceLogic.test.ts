@@ -60,15 +60,49 @@ test('validateAttendanceInput enforces required fields and signature format', ()
   assert.ok(invalid.errors.sessionDate);
   assert.ok(invalid.errors.signatureDataUrl);
 
-  const valid = validateAttendanceInput({
+  const validWithoutNrik = validateAttendanceInput({
     fullName: 'Budi Santoso',
+    nrik: '',
     position: 'Customer Service',
     sessionDate: '23/11/2026',
     signatureDataUrl: VALID_PNG,
     trainingTitle: DEFAULT_TRAINING_CONFIG.title,
   });
-  assert.equal(valid.valid, true);
-  assert.deepEqual(valid.errors, {});
+  assert.equal(validWithoutNrik.valid, true);
+  assert.deepEqual(validWithoutNrik.errors, {});
+
+  const validWithNrik = validateAttendanceInput({
+    fullName: 'Budi Santoso',
+    nrik: '12345678',
+    position: 'Customer Service',
+    sessionDate: '23/11/2026',
+    signatureDataUrl: VALID_PNG,
+    trainingTitle: DEFAULT_TRAINING_CONFIG.title,
+  });
+  assert.equal(validWithNrik.valid, true);
+  assert.deepEqual(validWithNrik.errors, {});
+
+  const invalidShortNrik = validateAttendanceInput({
+    fullName: 'Budi Santoso',
+    nrik: '1234',
+    position: 'Customer Service',
+    sessionDate: '23/11/2026',
+    signatureDataUrl: VALID_PNG,
+    trainingTitle: DEFAULT_TRAINING_CONFIG.title,
+  });
+  assert.equal(invalidShortNrik.valid, false);
+  assert.ok(invalidShortNrik.errors.nrik);
+
+  const invalidAlphaNrik = validateAttendanceInput({
+    fullName: 'Budi Santoso',
+    nrik: '1234abcd',
+    position: 'Customer Service',
+    sessionDate: '23/11/2026',
+    signatureDataUrl: VALID_PNG,
+    trainingTitle: DEFAULT_TRAINING_CONFIG.title,
+  });
+  assert.equal(invalidAlphaNrik.valid, false);
+  assert.ok(invalidAlphaNrik.errors.nrik);
 });
 
 test('validateTrainingConfigInput requires valid title and at least one date', () => {
@@ -89,6 +123,7 @@ test('filterAttendances and buildParticipantMatrix group signatures by participa
     {
       id: 'att1',
       fullName: 'Siti Aminah',
+      nrik: '20260001',
       position: 'Teller',
       sessionDate: '23/11/2026',
       signatureDataUrl: VALID_PNG,
@@ -98,6 +133,7 @@ test('filterAttendances and buildParticipantMatrix group signatures by participa
     {
       id: 'att2',
       fullName: 'Siti Aminah',
+      nrik: '',
       position: 'Teller',
       sessionDate: '24/11/2026',
       signatureDataUrl: VALID_PNG,
@@ -107,6 +143,7 @@ test('filterAttendances and buildParticipantMatrix group signatures by participa
     {
       id: 'att3',
       fullName: 'Andi Wijaya',
+      nrik: '',
       position: 'Account Officer',
       sessionDate: '23/11/2026',
       signatureDataUrl: VALID_PNG,
@@ -122,21 +159,28 @@ test('filterAttendances and buildParticipantMatrix group signatures by participa
   const filteredBySearch = filterAttendances(records, { searchQuery: 'teller' });
   assert.equal(filteredBySearch.length, 2);
 
+  const filteredByNrik = filterAttendances(records, { searchQuery: '20260001' });
+  assert.equal(filteredByNrik.length, 1);
+  assert.equal(filteredByNrik[0].id, 'att1');
+
   const matrix = buildParticipantMatrix(records, DEFAULT_TRAINING_DATES);
   assert.equal(matrix.length, 2);
   assert.equal(matrix[0].fullName, 'Andi Wijaya');
+  assert.equal(matrix[0].nrik, '');
   assert.equal(matrix[0].attendedCount, 1);
   assert.equal(matrix[1].fullName, 'Siti Aminah');
+  assert.equal(matrix[1].nrik, '20260001');
   assert.equal(matrix[1].attendedCount, 2);
   assert.ok(matrix[1].sessions['23/11/2026']);
   assert.ok(matrix[1].sessions['24/11/2026']);
 });
 
-test('CSV exports include UTF-8 BOM, escape formulas, and include all columns', () => {
+test('CSV exports include UTF-8 BOM, escape formulas, and include all columns including NRIK', () => {
   const records: AttendanceRecord[] = [
     {
       id: 'att1',
       fullName: '=CMD()',
+      nrik: '87654321',
       position: 'Staff, Ops',
       sessionDate: '23/11/2026',
       signatureDataUrl: VALID_PNG,
@@ -148,11 +192,14 @@ test('CSV exports include UTF-8 BOM, escape formulas, and include all columns', 
   const logCsv = generateAttendanceCsv(records, DEFAULT_TRAINING_CONFIG.title);
   assert.ok(logCsv.startsWith('\uFEFF'));
   assert.ok(logCsv.includes("'=CMD()"));
+  assert.ok(logCsv.includes('87654321'));
   assert.ok(logCsv.includes('"Staff, Ops"'));
   assert.ok(logCsv.includes('Tertandatangani Digital'));
 
   const matrix = buildParticipantMatrix(records, ['23/11/2026', '24/11/2026']);
   const matrixCsv = generateMatrixCsv(matrix, ['23/11/2026', '24/11/2026'], DEFAULT_TRAINING_CONFIG.title);
+  assert.ok(matrixCsv.includes('NRIK'));
+  assert.ok(matrixCsv.includes('87654321'));
   assert.ok(matrixCsv.includes('1/2'));
   assert.ok(matrixCsv.includes('Hadir ('));
 });
@@ -172,6 +219,7 @@ test('buildTrainingPdfFilename and buildTrainingPdfSummaries produce distinct do
     {
       id: 'att1',
       fullName: 'Siti Aminah',
+      nrik: '11223344',
       position: 'Teller',
       sessionDate: '23/11/2026',
       signatureDataUrl: VALID_PNG,
@@ -181,6 +229,7 @@ test('buildTrainingPdfFilename and buildTrainingPdfSummaries produce distinct do
     {
       id: 'att2',
       fullName: 'Andi Wijaya',
+      nrik: '',
       position: 'AO',
       sessionDate: '02/12/2026',
       signatureDataUrl: VALID_PNG,

@@ -77,7 +77,7 @@ function drawMatrixHeader(
   let x = marginX;
   headers.forEach((label, idx) => {
     const colW = colWidths[idx];
-    const isDateCol = idx >= 3 && idx < headers.length - 1;
+    const isDateCol = idx >= 4 && idx < headers.length - 1;
     const isTotalCol = idx === headers.length - 1;
     if (isDateCol) {
       doc.text(label, x + colW / 2, y + 5.2, { align: 'center' });
@@ -146,21 +146,23 @@ export function downloadTrainingAttendancePdf(summary: TrainingPdfSummary): void
       doc.addPage();
     }
 
-    const noColW = 9;
-    const nameColW = 42;
-    const posColW = 30;
-    const totalColW = 14;
-    const fixedWidth = noColW + nameColW + posColW + totalColW;
+    const noColW = 8;
+    const nameColW = 38;
+    const nrikColW = 20;
+    const posColW = 28;
+    const totalColW = 13;
+    const fixedWidth = noColW + nameColW + nrikColW + posColW + totalColW;
     const dateColW = (usableWidth - fixedWidth) / chunkDates.length;
 
     const colWidths = [
       noColW,
       nameColW,
+      nrikColW,
       posColW,
       ...chunkDates.map(() => dateColW),
       totalColW,
     ];
-    const headers = ['No', 'Nama Lengkap', 'Jabatan', ...chunkDates, 'Total'];
+    const headers = ['No', 'Nama Lengkap', 'NRIK', 'Jabatan', ...chunkDates, 'Total'];
 
     let y = drawDocumentHeader(doc, summary, printedAtText);
     y = drawMatrixHeader(doc, marginX, y, colWidths, headers);
@@ -209,6 +211,11 @@ export function downloadTrainingAttendancePdf(summary: TrainingPdfSummary): void
         .slice(0, 2);
       doc.text(nameLines, x + 2, y + 6.5);
       x += nameColW;
+
+      // NRIK
+      doc.setFont('helvetica', 'normal');
+      doc.text(row.nrik ? sanitizePdfText(row.nrik) : '-', x + 2, y + 8.5);
+      x += nrikColW;
 
       // Jabatan
       doc.setFont('helvetica', 'normal');

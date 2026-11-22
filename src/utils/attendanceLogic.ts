@@ -9,6 +9,7 @@ export interface TrainingConfig {
 export interface AttendanceRecord {
   id: string;
   fullName: string;
+  nrik: string;
   position: string;
   sessionDate: string;
   signatureDataUrl: string;
@@ -18,6 +19,7 @@ export interface AttendanceRecord {
 
 export interface AttendanceInput {
   fullName: string;
+  nrik?: string;
   position: string;
   sessionDate: string;
   signatureDataUrl: string;
@@ -28,6 +30,7 @@ export interface AttendanceValidationResult {
   valid: boolean;
   errors: {
     fullName?: string;
+    nrik?: string;
     position?: string;
     sessionDate?: string;
     signatureDataUrl?: string;
@@ -47,6 +50,7 @@ export interface TrainingConfigValidationResult {
 export interface ParticipantMatrixRow {
   key: string;
   fullName: string;
+  nrik: string;
   position: string;
   sessions: Record<
     string,
@@ -78,6 +82,7 @@ export const FIELD_LIMITS = {
   MAX_SCHEDULE_SUMMARY_LENGTH: 200,
   MIN_NAME_LENGTH: 2,
   MAX_NAME_LENGTH: 120,
+  NRIK_LENGTH: 8,
   MIN_POSITION_LENGTH: 2,
   MAX_POSITION_LENGTH: 120,
   MIN_SIGNATURE_LENGTH: 100,
@@ -85,6 +90,7 @@ export const FIELD_LIMITS = {
   MAX_DATES_COUNT: 31,
 } as const;
 
+export const NRIK_REGEX = /^[0-9]{8}$/;
 export const DATE_REGEX = /^[0-3][0-9]\/[0-1][0-9]\/20[2-9][0-9]$/;
 export const SIGNATURE_REGEX = /^data:image\/png;base64,[A-Za-z0-9+/=]+$/;
 
@@ -227,6 +233,7 @@ export function validateAttendanceInput(input: AttendanceInput): AttendanceValid
   const errors: AttendanceValidationResult['errors'] = {};
 
   const fullName = input.fullName.trim();
+  const nrik = (input.nrik ?? '').trim();
   const position = input.position.trim();
   const sessionDate = input.sessionDate.trim();
   const signatureDataUrl = input.signatureDataUrl.trim();
@@ -236,6 +243,10 @@ export function validateAttendanceInput(input: AttendanceInput): AttendanceValid
     errors.fullName = 'Nama lengkap minimal 2 karakter.';
   } else if (fullName.length > FIELD_LIMITS.MAX_NAME_LENGTH) {
     errors.fullName = `Nama lengkap maksimal ${FIELD_LIMITS.MAX_NAME_LENGTH} karakter.`;
+  }
+
+  if (nrik.length > 0 && !NRIK_REGEX.test(nrik)) {
+    errors.nrik = 'NRIK harus terdiri dari tepat 8 digit angka (atau kosongkan jika tidak ada).';
   }
 
   if (position.length < FIELD_LIMITS.MIN_POSITION_LENGTH) {
@@ -326,7 +337,8 @@ export function filterAttendances(
       return false;
     }
     if (q) {
-      const hay = `${rec.fullName} ${rec.position} ${rec.sessionDate} ${rec.trainingTitle}`.toLowerCase();
+      const hay =
+        `${rec.fullName} ${rec.nrik ?? ''} ${rec.position} ${rec.sessionDate} ${rec.trainingTitle}`.toLowerCase();
       if (!hay.includes(q)) return false;
     }
     return true;
@@ -434,20 +446,27 @@ export function buildParticipantMatrix(
 
   for (const rec of records) {
     const normalizedKey = `${rec.fullName.trim().toLowerCase()}__${rec.position.trim().toLowerCase()}`;
+    const trimmedNrik = (rec.nrik ?? '').trim();
     let row = map.get(normalizedKey);
     if (!row) {
       row = {
         key: normalizedKey,
         fullName: rec.fullName.trim(),
+        nrik: trimmedNrik,
         position: rec.position.trim(),
         sessions: {},
         attendedCount: 0,
       };
       map.set(normalizedKey, row);
+    } else if (trimmedNrik && !row.nrik) {
+      row.nrik = trimmedNrik;
     }
 
     const existing = row.sessions[rec.sessionDate];
     if (!existing || rec.submittedAtMs >= existing.submittedAtMs) {
+      if (trimmedNrik) {
+        row.nrik = trimmedNrik;
+      }
       row.sessions[rec.sessionDate] = {
         id: rec.id,
         signatureDataUrl: rec.signatureDataUrl,
@@ -492,6 +511,7 @@ export function generateAttendanceCsv(records: AttendanceRecord[], trainingTitle
   const headers = [
     'No',
     'Nama Lengkap',
+    'NRIK',
     'Jabatan',
     'Waktu Pelatihan',
     'Judul Pelatihan',
@@ -505,6 +525,7 @@ export function generateAttendanceCsv(records: AttendanceRecord[], trainingTitle
     const row = [
       String(index + 1),
       rec.fullName,
+      rec.nrik?.trim() || '-',
       rec.position,
       rec.sessionDate,
       rec.trainingTitle || trainingTitle,
@@ -523,7 +544,7 @@ export function generateMatrixCsv(
   trainingTitle: string,
 ): string {
   const titleRow = [trainingTitle].map(escapeCsvCell).join(',');
-  const headers = ['No', 'Nama Lengkap', 'Jabatan', ...dates, 'Total Hadir'];
+  const headers = ['No', 'Nama Lengkap', 'NRIK', 'Jabatan', ...dates, 'Total Hadir'];
   const lines: string[] = [titleRow, headers.map(escapeCsvCell).join(',')];
 
   rows.forEach((row, index) => {
@@ -534,6 +555,7 @@ export function generateMatrixCsv(
     const csvRow = [
       String(index + 1),
       row.fullName,
+      row.nrik?.trim() || '-',
       row.position,
       ...dateCells,
       `${row.attendedCount}/${dates.length}`,

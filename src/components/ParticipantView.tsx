@@ -26,6 +26,7 @@ interface SubmittedReceipt {
 
 export function ParticipantView({ config, configLoading }: ParticipantViewProps) {
   const [fullName, setFullName] = useState('');
+  const [nrik, setNrik] = useState('');
   const [position, setPosition] = useState('');
   const [selectedDate, setSelectedDate] = useState(() =>
     pickDefaultSessionDate(config.dates),
@@ -48,6 +49,7 @@ export function ParticipantView({ config, configLoading }: ParticipantViewProps)
 
     const payload: AttendanceInput = {
       fullName,
+      nrik,
       position,
       sessionDate: selectedDate,
       signatureDataUrl,
@@ -85,6 +87,7 @@ export function ParticipantView({ config, configLoading }: ParticipantViewProps)
   const handleResetForm = () => {
     setReceipt(null);
     setFullName('');
+    setNrik('');
     setPosition('');
     setSignatureDataUrl('');
     setFieldErrors({});
@@ -119,6 +122,12 @@ export function ParticipantView({ config, configLoading }: ParticipantViewProps)
             <div>
               <dt className="text-xs text-neutral-500 mb-1">Nama Lengkap</dt>
               <dd className="font-semibold text-neutral-950">{receipt.record.fullName}</dd>
+            </div>
+            <div>
+              <dt className="text-xs text-neutral-500 mb-1">NRIK (8 digit)</dt>
+              <dd className="font-mono tabular-nums font-semibold text-neutral-950">
+                {receipt.record.nrik?.trim() || '-'}
+              </dd>
             </div>
             <div>
               <dt className="text-xs text-neutral-500 mb-1">Jabatan</dt>
@@ -266,6 +275,48 @@ export function ParticipantView({ config, configLoading }: ParticipantViewProps)
             {fieldErrors.position && (
               <p role="alert" className="mt-1.5 text-xs text-red-600 font-medium">
                 {fieldErrors.position}
+              </p>
+            )}
+          </div>
+
+          {/* NRIK (8 digit) - Opsional */}
+          <div>
+            <label
+              htmlFor="nrik"
+              className="block text-sm font-semibold text-neutral-900 mb-2"
+            >
+              NRIK (8 digit){' '}
+              <span className="text-xs font-normal text-neutral-500">(Opsional)</span>
+            </label>
+            <input
+              id="nrik"
+              name="nrik"
+              type="text"
+              inputMode="numeric"
+              autoComplete="off"
+              maxLength={FIELD_LIMITS.NRIK_LENGTH}
+              value={nrik}
+              onChange={(e) => {
+                const digitsOnly = e.target.value
+                  .replace(/\D/g, '')
+                  .slice(0, FIELD_LIMITS.NRIK_LENGTH);
+                setNrik(digitsOnly);
+                if (fieldErrors.nrik) {
+                  setFieldErrors((prev) => ({ ...prev, nrik: undefined }));
+                }
+              }}
+              placeholder="Contoh: 12345678"
+              className={`w-full px-3.5 py-2.5 text-sm font-mono tabular-nums placeholder:font-sans text-neutral-950 bg-white border rounded-lg transition-colors focus:outline-none focus:ring-2 focus:ring-[#D9380B]/20 focus:border-[#D9380B] ${
+                fieldErrors.nrik ? 'border-red-600' : 'border-neutral-300'
+              }`}
+            />
+            {fieldErrors.nrik ? (
+              <p role="alert" className="mt-1.5 text-xs text-red-600 font-medium">
+                {fieldErrors.nrik}
+              </p>
+            ) : (
+              <p className="mt-1.5 text-xs text-neutral-500">
+                Tidak wajib diisi — boleh dikosongkan apabila tidak memiliki NRIK.
               </p>
             )}
           </div>

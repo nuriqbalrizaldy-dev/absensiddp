@@ -26,6 +26,7 @@ ON CONFLICT (id) DO NOTHING;
 CREATE TABLE IF NOT EXISTS public.attendances (
   id TEXT PRIMARY KEY CHECK (id ~ '^[a-zA-Z0-9_-]{1,128}$'),
   full_name TEXT NOT NULL CHECK (char_length(full_name) BETWEEN 2 AND 120),
+  nrik TEXT NOT NULL DEFAULT '' CHECK (nrik = '' OR nrik ~ '^[0-9]{8}$'),
   position TEXT NOT NULL CHECK (char_length(position) BETWEEN 2 AND 120),
   session_date TEXT NOT NULL CHECK (session_date ~ '^[0-3][0-9]/[0-1][0-9]/20[2-9][0-9]$'),
   signature_data_url TEXT NOT NULL CHECK (
@@ -35,6 +36,11 @@ CREATE TABLE IF NOT EXISTS public.attendances (
   training_title TEXT NOT NULL CHECK (char_length(training_title) BETWEEN 3 AND 200),
   submitted_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+
+-- Pastikan kolom nrik tersedia jika tabel sudah dibuat sebelumnya
+ALTER TABLE public.attendances
+  ADD COLUMN IF NOT EXISTS nrik TEXT NOT NULL DEFAULT ''
+  CHECK (nrik = '' OR nrik ~ '^[0-9]{8}$');
 
 CREATE INDEX IF NOT EXISTS idx_attendances_submitted_at
   ON public.attendances (submitted_at DESC);

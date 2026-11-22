@@ -745,10 +745,10 @@ export function AdminView({
                 />
                 <input
                   type="search"
-                  aria-label="Cari nama peserta atau jabatan"
+                  aria-label="Cari nama peserta, NRIK, atau jabatan"
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
-                  placeholder="Cari nama atau jabatan..."
+                  placeholder="Cari nama, NRIK, atau jabatan..."
                   className="w-full pl-9 pr-3 py-2 text-sm border border-neutral-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#D9380B]/20 focus:border-[#D9380B]"
                 />
               </div>
@@ -878,6 +878,7 @@ export function AdminView({
                     <tr className="border-b border-neutral-200 bg-neutral-50 text-xs font-semibold text-neutral-600">
                       <th className="py-3 px-4 w-12 font-mono tabular-nums">No</th>
                       <th className="py-3 px-4">Nama Lengkap</th>
+                      <th className="py-3 px-4 whitespace-nowrap">NRIK</th>
                       <th className="py-3 px-4">Jabatan</th>
                       <th className="py-3 px-4">Waktu Pelatihan</th>
                       <th className="py-3 px-4">Tanda Tangan</th>
@@ -896,6 +897,9 @@ export function AdminView({
                         </td>
                         <td className="py-3 px-4 font-medium text-neutral-950">
                           {rec.fullName}
+                        </td>
+                        <td className="py-3 px-4 font-mono tabular-nums text-xs text-neutral-700 whitespace-nowrap">
+                          {rec.nrik?.trim() || '-'}
                         </td>
                         <td className="py-3 px-4 text-neutral-700">{rec.position}</td>
                         <td className="py-3 px-4 font-mono tabular-nums text-xs text-[#C23008] font-semibold whitespace-nowrap">
@@ -963,6 +967,9 @@ export function AdminView({
                       <th className="py-3 px-4 min-w-[160px] border-r border-neutral-200">
                         Nama Lengkap
                       </th>
+                      <th className="py-3 px-4 min-w-[96px] border-r border-neutral-200 whitespace-nowrap">
+                        NRIK
+                      </th>
                       <th className="py-3 px-4 min-w-[130px] border-r border-neutral-200">
                         Jabatan
                       </th>
@@ -987,6 +994,9 @@ export function AdminView({
                         </td>
                         <td className="py-2.5 px-4 font-semibold text-neutral-950 border-r border-neutral-200">
                           {row.fullName}
+                        </td>
+                        <td className="py-2.5 px-4 font-mono tabular-nums text-neutral-700 border-r border-neutral-200 whitespace-nowrap">
+                          {row.nrik?.trim() || '-'}
                         </td>
                         <td className="py-2.5 px-4 text-neutral-700 border-r border-neutral-200">
                           {row.position}

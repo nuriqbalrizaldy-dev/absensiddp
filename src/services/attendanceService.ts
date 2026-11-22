@@ -85,6 +85,7 @@ function mapSupabaseAttendanceRow(row: Record<string, unknown>): AttendanceRecor
   return {
     id: typeof row.id === 'string' ? row.id : '',
     fullName: typeof row.full_name === 'string' ? row.full_name : '-',
+    nrik: typeof row.nrik === 'string' ? row.nrik : '',
     position: typeof row.position === 'string' ? row.position : '-',
     sessionDate: typeof row.session_date === 'string' ? row.session_date : '-',
     signatureDataUrl: typeof row.signature_data_url === 'string' ? row.signature_data_url : '',
@@ -372,6 +373,7 @@ export async function submitAttendance(input: AttendanceInput): Promise<{
 }> {
   const sanitized: AttendanceInput = {
     fullName: input.fullName.trim(),
+    nrik: (input.nrik ?? '').trim(),
     position: input.position.trim(),
     sessionDate: input.sessionDate.trim(),
     signatureDataUrl: input.signatureDataUrl.trim(),
@@ -382,6 +384,7 @@ export async function submitAttendance(input: AttendanceInput): Promise<{
   if (!validation.valid) {
     const firstMsg =
       validation.errors.fullName ||
+      validation.errors.nrik ||
       validation.errors.position ||
       validation.errors.sessionDate ||
       validation.errors.signatureDataUrl ||
@@ -395,7 +398,7 @@ export async function submitAttendance(input: AttendanceInput): Promise<{
   if (isSupabaseConfigured()) {
     const supabase = getSupabaseClient();
     const nowIso = new Date().toISOString();
-    const { error } = await supabase.from('attendances').insert({
+    const baseRow = {
       id,
       full_name: sanitized.fullName,
       position: sanitized.position,
@@ -403,10 +406,39 @@ export async function submitAttendance(input: AttendanceInput): Promise<{
       signature_data_url: sanitized.signatureDataUrl,
       training_title: sanitized.trainingTitle,
       submitted_at: nowIso,
+    };
+
+    const { error } = await supabase.from('attendances').insert({
+      ...baseRow,
+      nrik: sanitized.nrik ?? '',
     });
+
     if (error) {
+      const mentionsNrikColumn =
+        error.message.toLowerCase().includes('nrik') &&
+        (error.message.toLowerCase().includes('column') ||
+          error.message.toLowerCase().includes('schema cache'));
+
+      if (mentionsNrikColumn) {
+        if (!sanitized.nrik) {
+          const retry = await supabase.from('attendances').insert(baseRow);
+          if (!retry.error) {
+            return {
+              id,
+              record: sanitized,
+              submittedAtMs: Date.now(),
+            };
+          }
+          throw new Error(retry.error.message);
+        }
+        throw new Error(
+          'Kolom NRIK belum ditambahkan di database Supabase. Silakan jalankan perintah SQL ALTER TABLE di Supabase SQL Editor terlebih dahulu.',
+        );
+      }
+
       throw new Error(error.message);
     }
+
     return {
       id,
       record: sanitized,
@@ -419,6 +451,7 @@ export async function submitAttendance(input: AttendanceInput): Promise<{
   try {
     await setDoc(doc(db, ATTENDANCES_COLLECTION, id), {
       fullName: sanitized.fullName,
+      nrik: sanitized.nrik ?? '',
       position: sanitized.position,
       sessionDate: sanitized.sessionDate,
       signatureDataUrl: sanitized.signatureDataUrl,
@@ -497,6 +530,7 @@ export function subscribeAttendances(
         return {
           id: docSnap.id,
           fullName: typeof data.fullName === 'string' ? data.fullName : '-',
+          nrik: typeof data.nrik === 'string' ? data.nrik : '',
           position: typeof data.position === 'string' ? data.position : '-',
           sessionDate: typeof data.sessionDate === 'string' ? data.sessionDate : '-',
           signatureDataUrl: typeof data.signatureDataUrl === 'string' ? data.signatureDataUrl : '',
