@@ -59,6 +59,17 @@ export interface ParticipantMatrixRow {
   attendedCount: number;
 }
 
+export interface TrainingPdfSummary {
+  trainingTitle: string;
+  filename: string;
+  isActive: boolean;
+  scheduleSummary: string;
+  recordCount: number;
+  uniqueParticipants: number;
+  latestSubmittedAtMs: number;
+  records: AttendanceRecord[];
+}
+
 export const FIELD_LIMITS = {
   MIN_TITLE_LENGTH: 3,
   MAX_TITLE_LENGTH: 200,
@@ -296,20 +307,115 @@ export function validateTrainingConfigInput(input: {
 
 export function filterAttendances(
   records: AttendanceRecord[],
-  filter: { searchQuery?: string; sessionDate?: string },
+  filter: { searchQuery?: string; sessionDate?: string; trainingTitle?: string },
 ): AttendanceRecord[] {
   const q = (filter.searchQuery ?? '').trim().toLowerCase();
   const dateFilter = (filter.sessionDate ?? '').trim();
+  const trainingFilter = (filter.trainingTitle ?? '').trim();
 
   return records.filter((rec) => {
+    if (
+      trainingFilter &&
+      trainingFilter !== 'ALL' &&
+      rec.trainingTitle.trim() !== trainingFilter
+    ) {
+      return false;
+    }
     if (dateFilter && dateFilter !== 'ALL' && rec.sessionDate !== dateFilter) {
       return false;
     }
     if (q) {
-      const hay = `${rec.fullName} ${rec.position} ${rec.sessionDate}`.toLowerCase();
+      const hay = `${rec.fullName} ${rec.position} ${rec.sessionDate} ${rec.trainingTitle}`.toLowerCase();
       if (!hay.includes(q)) return false;
     }
     return true;
+  });
+}
+
+export function buildTrainingPdfFilename(trainingTitle: string): string {
+  const cleaned = trainingTitle
+    .trim()
+    .toLowerCase()
+    .normalize('NFKD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 80)
+    .replace(/-+$/g, '');
+
+  const slug = cleaned || 'pelatihan';
+  return `daftar-hadir-${slug}.pdf`;
+}
+
+export function buildTrainingPdfSummaries(
+  records: AttendanceRecord[],
+  activeConfig: TrainingConfig,
+  extraTrainings: Array<{ title: string; scheduleSummary?: string }> = [],
+): TrainingPdfSummary[] {
+  const activeTitle = activeConfig.title.trim() || DEFAULT_TRAINING_CONFIG.title;
+  const groups = new Map<string, AttendanceRecord[]>();
+  const scheduleHints = new Map<string, string>();
+
+  groups.set(activeTitle, []);
+  scheduleHints.set(activeTitle, activeConfig.scheduleSummary);
+
+  for (const extra of extraTrainings) {
+    const t = extra.title.trim();
+    if (!t) continue;
+    if (!groups.has(t)) {
+      groups.set(t, []);
+    }
+    if (extra.scheduleSummary && !scheduleHints.has(t)) {
+      scheduleHints.set(t, extra.scheduleSummary);
+    }
+  }
+
+  for (const rec of records) {
+    const titleKey = rec.trainingTitle.trim() || activeTitle;
+    const list = groups.get(titleKey);
+    if (list) {
+      list.push(rec);
+    } else {
+      groups.set(titleKey, [rec]);
+    }
+  }
+
+  const summaries: TrainingPdfSummary[] = [];
+  for (const [trainingTitle, groupRecords] of groups.entries()) {
+    const isActive = trainingTitle === activeTitle;
+    const uniqueSet = new Set(
+      groupRecords.map(
+        (r) => `${r.fullName.trim().toLowerCase()}__${r.position.trim().toLowerCase()}`,
+      ),
+    );
+    const latestSubmittedAtMs = groupRecords.reduce(
+      (max, r) => (r.submittedAtMs > max ? r.submittedAtMs : max),
+      0,
+    );
+    const inferredDates = sortTrainingDates(groupRecords.map((r) => r.sessionDate));
+    const scheduleSummary = isActive
+      ? activeConfig.scheduleSummary
+      : scheduleHints.get(trainingTitle) ||
+        (inferredDates.length > 0 ? formatScheduleSummary(inferredDates) : '-');
+
+    summaries.push({
+      trainingTitle,
+      filename: buildTrainingPdfFilename(trainingTitle),
+      isActive,
+      scheduleSummary,
+      recordCount: groupRecords.length,
+      uniqueParticipants: uniqueSet.size,
+      latestSubmittedAtMs,
+      records: groupRecords,
+    });
+  }
+
+  return summaries.sort((a, b) => {
+    if (a.isActive !== b.isActive) return a.isActive ? -1 : 1;
+    if (b.latestSubmittedAtMs !== a.latestSubmittedAtMs) {
+      return b.latestSubmittedAtMs - a.latestSubmittedAtMs;
+    }
+    return a.trainingTitle.localeCompare(b.trainingTitle, 'id');
   });
 }
 

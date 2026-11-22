@@ -67,7 +67,19 @@ AS $$
   );
 $$;
 
--- 5. Aktifkan Row Level Security (RLS)
+-- 5. Berikan Hak Akses Skema & Tabel (GRANT) lalu Aktifkan Row Level Security (RLS)
+GRANT USAGE ON SCHEMA public TO anon, authenticated;
+
+GRANT SELECT ON TABLE public.training_config TO anon, authenticated;
+GRANT INSERT, UPDATE ON TABLE public.training_config TO authenticated;
+
+GRANT INSERT ON TABLE public.attendances TO anon, authenticated;
+GRANT SELECT, DELETE ON TABLE public.attendances TO authenticated;
+
+GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE public.admins TO authenticated;
+
+GRANT EXECUTE ON FUNCTION public.is_pic_admin() TO anon, authenticated;
+
 ALTER TABLE public.training_config ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.attendances ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.admins ENABLE ROW LEVEL SECURITY;

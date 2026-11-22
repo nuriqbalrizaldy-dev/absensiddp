@@ -4,6 +4,8 @@ import {
   DEFAULT_TRAINING_CONFIG,
   DEFAULT_TRAINING_DATES,
   buildParticipantMatrix,
+  buildTrainingPdfFilename,
+  buildTrainingPdfSummaries,
   filterAttendances,
   formatScheduleSummary,
   generateAttendanceCsv,
@@ -153,4 +155,58 @@ test('CSV exports include UTF-8 BOM, escape formulas, and include all columns', 
   const matrixCsv = generateMatrixCsv(matrix, ['23/11/2026', '24/11/2026'], DEFAULT_TRAINING_CONFIG.title);
   assert.ok(matrixCsv.includes('1/2'));
   assert.ok(matrixCsv.includes('Hadir ('));
+});
+
+test('buildTrainingPdfFilename and buildTrainingPdfSummaries produce distinct downloadable PDF entries per training title', () => {
+  const batch12Title = DEFAULT_TRAINING_CONFIG.title;
+  const batch13Title = 'Pelatihan Kredit Mikro Angkatan XIII Tahun 2026';
+
+  const file12 = buildTrainingPdfFilename(batch12Title);
+  const file13 = buildTrainingPdfFilename(batch13Title);
+  assert.notEqual(file12, file13);
+  assert.ok(file12.endsWith('.pdf'));
+  assert.ok(file13.endsWith('.pdf'));
+  assert.ok(file13.includes('pelatihan-kredit-mikro-angkatan-xiii-tahun-2026'));
+
+  const records: AttendanceRecord[] = [
+    {
+      id: 'att1',
+      fullName: 'Siti Aminah',
+      position: 'Teller',
+      sessionDate: '23/11/2026',
+      signatureDataUrl: VALID_PNG,
+      trainingTitle: batch12Title,
+      submittedAtMs: 1700000000000,
+    },
+    {
+      id: 'att2',
+      fullName: 'Andi Wijaya',
+      position: 'AO',
+      sessionDate: '02/12/2026',
+      signatureDataUrl: VALID_PNG,
+      trainingTitle: batch13Title,
+      submittedAtMs: 1700086400000,
+    },
+  ];
+
+  const nextActiveConfig = {
+    title: 'Pelatihan Layanan Prima Batch XIV Tahun 2026',
+    scheduleSummary: '10/12/2026',
+    dates: ['10/12/2026'],
+  };
+
+  const summaries = buildTrainingPdfSummaries(records, nextActiveConfig);
+  assert.equal(summaries.length, 3);
+  assert.equal(summaries[0].trainingTitle, nextActiveConfig.title);
+  assert.equal(summaries[0].isActive, true);
+  assert.equal(summaries[0].recordCount, 0);
+
+  const batch12Summary = summaries.find((s) => s.trainingTitle === batch12Title);
+  assert.ok(batch12Summary);
+  assert.equal(batch12Summary.recordCount, 1);
+  assert.equal(batch12Summary.filename, file12);
+
+  const onlyBatch13 = filterAttendances(records, { trainingTitle: batch13Title });
+  assert.equal(onlyBatch13.length, 1);
+  assert.equal(onlyBatch13[0].fullName, 'Andi Wijaya');
 });

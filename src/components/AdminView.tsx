@@ -5,6 +5,7 @@ import {
   Download,
   FileArchive,
   FileSpreadsheet,
+  FileText,
   FolderGit2,
   Loader2,
   LogIn,
@@ -27,6 +28,7 @@ import {
 } from '../services/attendanceService';
 import {
   buildParticipantMatrix,
+  buildTrainingPdfSummaries,
   DEFAULT_TRAINING_CONFIG,
   FIELD_LIMITS,
   filterAttendances,
@@ -40,7 +42,9 @@ import {
   validateTrainingConfigInput,
   type AttendanceRecord,
   type TrainingConfig,
+  type TrainingPdfSummary,
 } from '../utils/attendanceLogic';
+import { downloadTrainingAttendancePdf } from '../utils/pdfExport';
 
 interface AdminViewProps {
   user: AppAuthUser | null;
@@ -87,8 +91,26 @@ export function AdminView({
 
   const [searchQuery, setSearchQuery] = useState('');
   const [dateFilter, setDateFilter] = useState('ALL');
+  const [trainingFilter, setTrainingFilter] = useState('ALL');
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [savedTrainingsHistory, setSavedTrainingsHistory] = useState<
+    Array<{ title: string; scheduleSummary: string }>
+  >(() => {
+    if (typeof window === 'undefined') return [];
+    try {
+      const raw = window.localStorage.getItem('pic_created_trainings_v1');
+      const parsed = raw ? (JSON.parse(raw) as unknown) : [];
+      return Array.isArray(parsed)
+        ? parsed.filter(
+            (item): item is { title: string; scheduleSummary: string } =>
+              Boolean(item) && typeof (item as { title?: unknown }).title === 'string',
+          )
+        : [];
+    } catch {
+      return [];
+    }
+  });
 
   // Training settings editor state
   const [editTitle, setEditTitle] = useState(config.title);
@@ -101,7 +123,8 @@ export function AdminView({
     saving: boolean;
     error: string | null;
     success: string | null;
-  }>({ saving: false, error: null, success: null });
+    generatedTitle: string | null;
+  }>({ saving: false, error: null, success: null, generatedTitle: null });
   const [zipDownloadState, setZipDownloadState] = useState<{
     downloading: boolean;
     error: string | null;
@@ -141,9 +164,19 @@ export function AdminView({
     return () => unsubscribe();
   }, [authLoading, user, isAdmin]);
 
+  const trainingPdfSummaries = useMemo(
+    () => buildTrainingPdfSummaries(records, config, savedTrainingsHistory),
+    [records, config, savedTrainingsHistory],
+  );
+
   const filteredRecords = useMemo(
-    () => filterAttendances(records, { searchQuery, sessionDate: dateFilter }),
-    [records, searchQuery, dateFilter],
+    () =>
+      filterAttendances(records, {
+        searchQuery,
+        sessionDate: dateFilter,
+        trainingTitle: trainingFilter,
+      }),
+    [records, searchQuery, dateFilter, trainingFilter],
   );
 
   const matrixRows = useMemo(
@@ -155,6 +188,17 @@ export function AdminView({
     () => buildParticipantMatrix(records, config.dates).length,
     [records, config.dates],
   );
+
+  const activeExportSummary: TrainingPdfSummary | null = useMemo(() => {
+    if (trainingFilter !== 'ALL') {
+      return (
+        trainingPdfSummaries.find((s) => s.trainingTitle === trainingFilter) ??
+        trainingPdfSummaries[0] ??
+        null
+      );
+    }
+    return trainingPdfSummaries[0] ?? null;
+  }, [trainingFilter, trainingPdfSummaries]);
 
   const handleAddDate = () => {
     setDateAddError(null);
@@ -194,7 +238,7 @@ export function AdminView({
     setEditSummary(DEFAULT_TRAINING_CONFIG.scheduleSummary);
     setSummaryManuallyEdited(false);
     setDateAddError(null);
-    setSaveState({ saving: false, error: null, success: null });
+    setSaveState({ saving: false, error: null, success: null, generatedTitle: null });
   };
 
   const handleSaveConfig = async (e: React.FormEvent) => {
@@ -212,13 +256,13 @@ export function AdminView({
         validation.errors.dates ||
         validation.errors.scheduleSummary ||
         'Periksa kembali data pelatihan.';
-      setSaveState({ saving: false, error: msg, success: null });
+      setSaveState({ saving: false, error: msg, success: null, generatedTitle: null });
       return;
     }
 
-    setSaveState({ saving: true, error: null, success: null });
+    setSaveState({ saving: true, error: null, success: null, generatedTitle: null });
     try {
-      await saveTrainingConfig(
+      const saved = await saveTrainingConfig(
         {
           title: editTitle,
           dates: editDates,
@@ -226,10 +270,22 @@ export function AdminView({
         },
         user.email || user.uid,
       );
+      setSavedTrainingsHistory((prev) => {
+        const filtered = prev.filter((item) => item.title.trim() !== saved.title.trim());
+        const next = [{ title: saved.title, scheduleSummary: saved.scheduleSummary }, ...filtered];
+        try {
+          window.localStorage.setItem('pic_created_trainings_v1', JSON.stringify(next));
+        } catch {
+          // Ignore storage quota errors
+        }
+        return next;
+      });
       setSaveState({
         saving: false,
         error: null,
-        success: 'Pengaturan pelatihan berhasil disimpan dan aktif di halaman absen peserta.',
+        success:
+          'Pengaturan pelatihan berhasil disimpan dan file PDF baru untuk nama pelatihan ini siap diunduh.',
+        generatedTitle: saved.title,
       });
     } catch (err) {
       let msg = 'Gagal menyimpan perubahan pelatihan.';
@@ -241,7 +297,7 @@ export function AdminView({
           msg = err.message;
         }
       }
-      setSaveState({ saving: false, error: msg, success: null });
+      setSaveState({ saving: false, error: msg, success: null, generatedTitle: null });
     }
   };
 
@@ -261,11 +317,12 @@ export function AdminView({
 
   const handleDownloadCsv = () => {
     const safeDateTag = new Date().toISOString().slice(0, 10);
+    const activeTitle = trainingFilter !== 'ALL' ? trainingFilter : config.title;
     if (viewMode === 'matrix') {
-      const csv = generateMatrixCsv(matrixRows, config.dates, config.title);
+      const csv = generateMatrixCsv(matrixRows, config.dates, activeTitle);
       downloadCsvFile(csv, `matriks-absensi-pelatihan-${safeDateTag}.csv`);
     } else {
-      const csv = generateAttendanceCsv(filteredRecords, config.title);
+      const csv = generateAttendanceCsv(filteredRecords, activeTitle);
       downloadCsvFile(csv, `tarikan-absensi-pelatihan-${safeDateTag}.csv`);
     }
   };
@@ -589,10 +646,85 @@ export function AdminView({
             </div>
           )}
 
+          {/* Per-Training Ready-to-Download PDF Files */}
+          <div className="no-print bg-white border border-neutral-200 rounded-xl p-5 space-y-3">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div>
+                <h2 className="text-sm font-bold text-neutral-950">
+                  File PDF Siap Download per Nama Pelatihan ({trainingPdfSummaries.length})
+                </h2>
+                <p className="text-xs text-neutral-500 mt-0.5">
+                  Setiap nama pelatihan memiliki file PDF dan daftar hadir tersendiri. Mengubah
+                  nama pelatihan di tab sebelah akan langsung membuat file PDF baru di sini.
+                </p>
+              </div>
+            </div>
+
+            <div className="divide-y divide-neutral-200 border border-neutral-200 rounded-lg">
+              {trainingPdfSummaries.map((summary) => {
+                const isSelected = trainingFilter === summary.trainingTitle;
+                return (
+                  <div
+                    key={summary.trainingTitle}
+                    className={`p-3.5 sm:px-4 flex flex-col md:flex-row md:items-center md:justify-between gap-3 ${
+                      isSelected ? 'bg-orange-50/40' : 'bg-white'
+                    }`}
+                  >
+                    <div className="min-w-0 space-y-1">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="text-sm font-semibold text-neutral-950 break-words">
+                          {summary.trainingTitle}
+                        </span>
+                        {summary.isActive && (
+                          <span className="px-2 py-0.5 text-[11px] font-semibold bg-orange-50 text-[#C23008] border border-orange-200 rounded">
+                            Aktif
+                          </span>
+                        )}
+                      </div>
+                      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-neutral-500">
+                        <span className="font-mono text-[11px] text-neutral-700 break-all">
+                          {summary.filename}
+                        </span>
+                        <span aria-hidden="true">·</span>
+                        <span className="font-mono tabular-nums">
+                          {summary.recordCount} absensi ({summary.uniqueParticipants} peserta)
+                        </span>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-2 shrink-0">
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setTrainingFilter(isSelected ? 'ALL' : summary.trainingTitle)
+                        }
+                        className={`px-3 py-1.5 text-xs font-medium rounded-lg border transition-colors whitespace-nowrap ${
+                          isSelected
+                            ? 'bg-neutral-950 text-white border-neutral-950'
+                            : 'bg-white text-neutral-700 border-neutral-300 hover:bg-neutral-50'
+                        }`}
+                      >
+                        {isSelected ? 'Tampilkan Semua' : 'Lihat Data'}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => downloadTrainingAttendancePdf(summary)}
+                        className="inline-flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-semibold text-white bg-[#D9380B] hover:bg-[#B82D07] rounded-lg transition-colors whitespace-nowrap"
+                      >
+                        <FileText className="w-3.5 h-3.5" aria-hidden="true" />
+                        Download PDF
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+
           {/* Toolbar */}
           <div className="no-print bg-white border border-neutral-200 rounded-xl p-4 flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
-            <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 flex-1">
-              <div className="relative flex-1 max-w-sm">
+            <div className="flex flex-col sm:flex-row flex-wrap items-stretch sm:items-center gap-3 flex-1">
+              <div className="relative flex-1 min-w-[200px] max-w-sm">
                 <Search
                   className="w-4 h-4 text-neutral-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none"
                   aria-hidden="true"
@@ -606,6 +738,22 @@ export function AdminView({
                   className="w-full pl-9 pr-3 py-2 text-sm border border-neutral-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#D9380B]/20 focus:border-[#D9380B]"
                 />
               </div>
+
+              <select
+                aria-label="Filter nama pelatihan"
+                value={trainingFilter}
+                onChange={(e) => setTrainingFilter(e.target.value)}
+                className="px-3 py-2 text-sm border border-neutral-300 rounded-lg bg-white text-neutral-900 max-w-xs truncate focus:outline-none focus:ring-2 focus:ring-[#D9380B]/20 focus:border-[#D9380B]"
+              >
+                <option value="ALL">
+                  Semua Nama Pelatihan ({trainingPdfSummaries.length})
+                </option>
+                {trainingPdfSummaries.map((s) => (
+                  <option key={s.trainingTitle} value={s.trainingTitle}>
+                    {s.trainingTitle} ({s.recordCount})
+                  </option>
+                ))}
+              </select>
 
               <select
                 aria-label="Filter tanggal waktu pelatihan"
@@ -695,12 +843,13 @@ export function AdminView({
                     ? 'Data absensi akan muncul secara otomatis di sini segera setelah peserta mengisi formulir dan menekan tombol Simpan.'
                     : 'Ubah kata kunci pencarian atau pilih "Semua Tanggal" untuk melihat seluruh catatan.'}
                 </p>
-                {(searchQuery || dateFilter !== 'ALL') && (
+                {(searchQuery || dateFilter !== 'ALL' || trainingFilter !== 'ALL') && (
                   <button
                     type="button"
                     onClick={() => {
                       setSearchQuery('');
                       setDateFilter('ALL');
+                      setTrainingFilter('ALL');
                     }}
                     className="mt-4 px-4 py-2 text-xs font-medium text-neutral-900 border border-neutral-300 rounded-lg hover:bg-neutral-50"
                   >
@@ -894,10 +1043,34 @@ export function AdminView({
             {saveState.success && (
               <div
                 role="status"
-                className="p-3.5 rounded-lg bg-orange-50 border border-orange-200 text-xs text-[#9A2606] flex items-center gap-2 font-medium"
+                className="p-4 rounded-lg bg-orange-50 border border-orange-200 text-xs text-[#9A2606] space-y-3 font-medium"
               >
-                <Check className="w-4 h-4 shrink-0 text-[#D9380B]" aria-hidden="true" />
-                <span>{saveState.success}</span>
+                <div className="flex items-start gap-2">
+                  <Check className="w-4 h-4 shrink-0 text-[#D9380B] mt-0.5" aria-hidden="true" />
+                  <span>{saveState.success}</span>
+                </div>
+                {(() => {
+                  const targetSummary =
+                    trainingPdfSummaries.find(
+                      (s) => s.trainingTitle === (saveState.generatedTitle || config.title),
+                    ) ?? activeExportSummary;
+                  if (!targetSummary) return null;
+                  return (
+                    <div className="pt-2 border-t border-orange-200/80 flex flex-wrap items-center justify-between gap-2">
+                      <span className="font-mono text-[11px] text-neutral-800 break-all">
+                        {targetSummary.filename}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => downloadTrainingAttendancePdf(targetSummary)}
+                        className="inline-flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-semibold text-white bg-[#D9380B] hover:bg-[#B82D07] rounded-lg transition-colors whitespace-nowrap"
+                      >
+                        <FileText className="w-3.5 h-3.5" aria-hidden="true" />
+                        Download PDF Pelatihan Ini
+                      </button>
+                    </div>
+                  );
+                })()}
               </div>
             )}
 
@@ -916,7 +1089,12 @@ export function AdminView({
                 value={editTitle}
                 onChange={(e) => {
                   setEditTitle(e.target.value);
-                  setSaveState((prev) => ({ ...prev, success: null, error: null }));
+                  setSaveState((prev) => ({
+                    ...prev,
+                    success: null,
+                    error: null,
+                    generatedTitle: null,
+                  }));
                 }}
                 className="w-full px-3.5 py-2.5 text-sm text-neutral-950 border border-neutral-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#D9380B]/20 focus:border-[#D9380B]"
               />
