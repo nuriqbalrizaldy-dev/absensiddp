@@ -1,0 +1,97 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Global default-deny safety net
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // --- Helper Primitives ---
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isVerifiedUser() {
+      return isSignedIn() && request.auth.token.email_verified == true;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function isAdmin() {
+      return isVerifiedUser() && (
+        request.auth.token.email == 'nuriqbalrizaldy@gmail.com' ||
+        exists(/databases/$(database)/documents/admins/$(request.auth.uid))
+      );
+    }
+
+    // --- Validation Blueprints ---
+    function isValidTrainingConfig(data) {
+      return data.keys().hasAll(['title', 'scheduleSummary', 'dates', 'updatedAt', 'updatedBy']) &&
+        data.keys().hasOnly(['title', 'scheduleSummary', 'dates', 'updatedAt', 'updatedBy']) &&
+        data.title is string && data.title.size() >= 3 && data.title.size() <= 200 &&
+        data.scheduleSummary is string && data.scheduleSummary.size() >= 3 && data.scheduleSummary.size() <= 200 &&
+        data.dates is list && data.dates.size() >= 1 && data.dates.size() <= 31 &&
+        data.dates[0] is string && data.dates[0].size() == 10 &&
+        data.dates[0].matches('^[0-3][0-9]/[0-1][0-9]/20[2-9][0-9]$') &&
+        data.updatedAt is timestamp && data.updatedAt == request.time &&
+        data.updatedBy is string && data.updatedBy.size() >= 1 && data.updatedBy.size() <= 128;
+    }
+
+    function isValidAttendance(data) {
+      return data.keys().hasAll(['fullName', 'position', 'sessionDate', 'signatureDataUrl', 'trainingTitle', 'submittedAt']) &&
+        data.keys().hasOnly(['fullName', 'position', 'sessionDate', 'signatureDataUrl', 'trainingTitle', 'submittedAt']) &&
+        data.fullName is string && data.fullName.size() >= 2 && data.fullName.size() <= 120 &&
+        data.position is string && data.position.size() >= 2 && data.position.size() <= 120 &&
+        data.sessionDate is string && data.sessionDate.size() == 10 &&
+        data.sessionDate.matches('^[0-3][0-9]/[0-1][0-9]/20[2-9][0-9]$') &&
+        data.signatureDataUrl is string && data.signatureDataUrl.size() >= 100 && data.signatureDataUrl.size() <= 180000 &&
+        data.signatureDataUrl.matches('^data:image/png;base64,[A-Za-z0-9+/=]+$') &&
+        data.trainingTitle is string && data.trainingTitle.size() >= 3 && data.trainingTitle.size() <= 200 &&
+        data.submittedAt is timestamp && data.submittedAt == request.time;
+    }
+
+    function isValidAdminUser(data) {
+      return data.keys().hasAll(['email', 'addedAt']) &&
+        data.keys().hasOnly(['email', 'addedAt']) &&
+        data.email is string && data.email.size() >= 5 && data.email.size() <= 128 &&
+        data.addedAt is timestamp && data.addedAt == request.time;
+    }
+
+    // --- Collection Rules ---
+    match /training_config/{configId} {
+      allow get: if isValidId(configId) && configId == 'current';
+      allow list: if false;
+      allow create: if isAdmin() && isValidId(configId) && configId == 'current' && isValidTrainingConfig(incoming());
+      allow update: if isAdmin() && isValidId(configId) && configId == 'current' &&
+        isValidTrainingConfig(incoming()) &&
+        incoming().diff(existing()).affectedKeys().hasOnly(['title', 'scheduleSummary', 'dates', 'updatedAt', 'updatedBy']);
+      allow delete: if false;
+    }
+
+    match /attendances/{attendanceId} {
+      allow get: if isAdmin() && isValidId(attendanceId);
+      allow list: if isAdmin();
+      allow create: if isValidId(attendanceId) && isValidAttendance(incoming());
+      allow update: if false;
+      allow delete: if isAdmin() && isValidId(attendanceId);
+    }
+
+    match /admins/{adminUid} {
+      allow get: if isAdmin() && isValidId(adminUid);
+      allow list: if isAdmin();
+      allow create: if isAdmin() && isValidId(adminUid) && isValidAdminUser(incoming());
+      allow update: if false;
+      allow delete: if isAdmin() && isValidId(adminUid);
+    }
+  }
+}

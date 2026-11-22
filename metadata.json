@@ -1,0 +1,6 @@
+{
+  "name": "Absensi Pelatihan Perbankan",
+  "description": "Aplikasi absensi peserta pelatihan dengan tanda tangan digital dan panel admin PIC untuk rekap kehadiran serta pengaturan jadwal pelatihan.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

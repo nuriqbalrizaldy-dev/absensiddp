@@ -1,0 +1,118 @@
+{
+  "entities": {
+    "TrainingConfig": {
+      "title": "TrainingConfig",
+      "description": "Configuration for the active training title and session dates.",
+      "type": "object",
+      "properties": {
+        "title": {
+          "type": "string",
+          "description": "Official training title displayed on the attendance sheet.",
+          "minLength": 3,
+          "maxLength": 200
+        },
+        "scheduleSummary": {
+          "type": "string",
+          "description": "Human-readable schedule summary string.",
+          "minLength": 3,
+          "maxLength": 200
+        },
+        "dates": {
+          "type": "array",
+          "description": "Ordered list of training dates in DD/MM/YYYY format.",
+          "minLength": 1,
+          "maxLength": 31
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp when the configuration was last updated."
+        },
+        "updatedBy": {
+          "type": "string",
+          "description": "UID or email of the admin who updated the configuration.",
+          "maxLength": 128
+        }
+      },
+      "required": ["title", "scheduleSummary", "dates", "updatedAt", "updatedBy"]
+    },
+    "AttendanceRecord": {
+      "title": "AttendanceRecord",
+      "description": "Participant attendance submission with digital signature for a specific training date.",
+      "type": "object",
+      "properties": {
+        "fullName": {
+          "type": "string",
+          "description": "Participant full name.",
+          "minLength": 2,
+          "maxLength": 120
+        },
+        "position": {
+          "type": "string",
+          "description": "Participant job position / role.",
+          "minLength": 2,
+          "maxLength": 120
+        },
+        "sessionDate": {
+          "type": "string",
+          "description": "Training date signed by the participant in DD/MM/YYYY format.",
+          "minLength": 10,
+          "maxLength": 10,
+          "pattern": "^[0-3][0-9]/[0-1][0-9]/20[2-9][0-9]$"
+        },
+        "signatureDataUrl": {
+          "type": "string",
+          "description": "Base64 PNG data URL of the participant digital signature.",
+          "minLength": 100,
+          "maxLength": 180000,
+          "pattern": "^data:image/png;base64,[A-Za-z0-9+/=]+$"
+        },
+        "trainingTitle": {
+          "type": "string",
+          "description": "Snapshot of the training title at the time of attendance submission.",
+          "minLength": 3,
+          "maxLength": 200
+        },
+        "submittedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp of attendance submission."
+        }
+      },
+      "required": ["fullName", "position", "sessionDate", "signatureDataUrl", "trainingTitle", "submittedAt"]
+    },
+    "AdminUser": {
+      "title": "AdminUser",
+      "description": "Authorized PIC admin record keyed by Firebase Auth UID.",
+      "type": "object",
+      "properties": {
+        "email": {
+          "type": "string",
+          "description": "Verified email address of the admin user.",
+          "minLength": 5,
+          "maxLength": 128
+        },
+        "addedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp when admin access was granted."
+        }
+      },
+      "required": ["email", "addedAt"]
+    }
+  },
+  "firestore": {
+    "/training_config/{configId}": {
+      "schema": { "$ref": "#/entities/TrainingConfig" },
+      "description": "Active training title and schedule configuration (doc ID: current)."
+    },
+    "/attendances/{attendanceId}": {
+      "schema": { "$ref": "#/entities/AttendanceRecord" },
+      "description": "Participant attendance logs with digital signatures."
+    },
+    "/admins/{adminUid}": {
+      "schema": { "$ref": "#/entities/AdminUser" },
+      "description": "Admin role directory keyed by Firebase Auth UID."
+    }
+  }
+}
