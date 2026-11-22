@@ -1,8 +1,11 @@
 import { jsPDF } from 'jspdf';
-import { formatTimestampId, type TrainingPdfSummary } from './attendanceLogic';
+import {
+  buildParticipantMatrix,
+  formatTimestampId,
+  type TrainingPdfSummary,
+} from './attendanceLogic';
 
 function sanitizePdfText(value: string): string {
-  // Replace non-Latin-1 punctuation (e.g. curly dashes/quotes) so built-in Helvetica renders cleanly
   return String(value ?? '')
     .replace(/[\u2013\u2014]/g, '-')
     .replace(/[\u2018\u2019]/g, "'")
@@ -16,80 +19,73 @@ function drawDocumentHeader(
   printedAtText: string,
 ): number {
   const pageWidth = doc.internal.pageSize.getWidth();
-  const marginX = 14;
+  const marginX = 12;
   const contentWidth = pageWidth - marginX * 2;
 
   // Bank Jakarta orange top accent bar
-  doc.setFillColor(217, 56, 11); // #D9380B
-  doc.rect(0, 0, pageWidth, 3, 'F');
+  doc.setFillColor(217, 56, 11);
+  doc.rect(0, 0, pageWidth, 2.8, 'F');
 
-  let y = 13;
+  let y = 11.5;
 
   doc.setFont('helvetica', 'bold');
-  doc.setFontSize(8.5);
+  doc.setFontSize(8);
   doc.setTextColor(194, 48, 8);
   doc.text('DAFTAR HADIR RESMI PESERTA PELATIHAN', marginX, y);
-  y += 5.5;
+  y += 5;
 
   doc.setFont('helvetica', 'bold');
-  doc.setFontSize(13.5);
+  doc.setFontSize(13);
   doc.setTextColor(10, 10, 10);
   const titleLines = doc.splitTextToSize(sanitizePdfText(summary.trainingTitle), contentWidth);
   doc.text(titleLines, marginX, y);
-  y += titleLines.length * 5.8 + 1;
+  y += titleLines.length * 5.2 + 0.8;
 
   doc.setFont('helvetica', 'normal');
-  doc.setFontSize(9.5);
+  doc.setFontSize(9);
   doc.setTextColor(64, 64, 64);
-  const scheduleLines = doc.splitTextToSize(
-    sanitizePdfText(`Waktu Pelatihan: ${summary.scheduleSummary || '-'}`),
-    contentWidth,
+  const metaText = sanitizePdfText(
+    `Waktu Pelatihan: ${summary.scheduleSummary || '-'}   |   Peserta Unik: ${summary.uniqueParticipants}   |   Total Absensi: ${summary.recordCount}   |   Diunduh: ${printedAtText}`,
   );
-  doc.text(scheduleLines, marginX, y);
-  y += scheduleLines.length * 4.5 + 1.5;
-
-  doc.setFontSize(8.5);
-  doc.setTextColor(105, 105, 105);
-  doc.text(
-    sanitizePdfText(
-      `Total Catatan: ${summary.recordCount}  |  Peserta Unik: ${summary.uniqueParticipants}  |  Diunduh: ${printedAtText}`,
-    ),
-    marginX,
-    y,
-  );
-  y += 3.5;
+  const metaLines = doc.splitTextToSize(metaText, contentWidth);
+  doc.text(metaLines, marginX, y);
+  y += metaLines.length * 4.2 + 1.5;
 
   doc.setDrawColor(212, 212, 212);
   doc.setLineWidth(0.35);
   doc.line(marginX, y, pageWidth - marginX, y);
-  return y + 5;
+  return y + 4.5;
 }
 
-const COL_WIDTHS = [10, 44, 36, 24, 38, 30] as const; // Total = 182mm on A4 (210 - 28 margins)
-const HEADERS = [
-  'No',
-  'Nama Lengkap',
-  'Jabatan',
-  'Tanggal',
-  'Tanda Tangan',
-  'Waktu Simpan',
-] as const;
-
-function drawTableHeader(doc: jsPDF, marginX: number, y: number): number {
-  const rowHeight = 8.5;
-  const totalWidth = COL_WIDTHS.reduce((sum, w) => sum + w, 0);
+function drawMatrixHeader(
+  doc: jsPDF,
+  marginX: number,
+  y: number,
+  colWidths: number[],
+  headers: string[],
+): number {
+  const rowHeight = 8;
+  const totalWidth = colWidths.reduce((sum, w) => sum + w, 0);
 
   doc.setFillColor(10, 10, 10);
   doc.rect(marginX, y, totalWidth, rowHeight, 'F');
 
   doc.setFont('helvetica', 'bold');
-  doc.setFontSize(8.2);
+  doc.setFontSize(7.8);
   doc.setTextColor(255, 255, 255);
 
   let x = marginX;
-  HEADERS.forEach((label, idx) => {
-    const colW = COL_WIDTHS[idx];
-    doc.text(label, x + 2, y + 5.6);
+  headers.forEach((label, idx) => {
+    const colW = colWidths[idx];
+    const isDateCol = idx >= 3 && idx < headers.length - 1;
+    const isTotalCol = idx === headers.length - 1;
+    if (isDateCol) {
+      doc.text(label, x + colW / 2, y + 5.2, { align: 'center' });
+    } else if (isTotalCol) {
+      doc.text(label, x + colW - 2, y + 5.2, { align: 'right' });
+    } else {
+      doc.text(label, x + 2, y + 5.2);
+    }
     x += colW;
   });
 
@@ -101,9 +97,10 @@ function drawRowBorders(
   marginX: number,
   y: number,
   rowHeight: number,
+  colWidths: number[],
   shaded: boolean,
 ) {
-  const totalWidth = COL_WIDTHS.reduce((sum, w) => sum + w, 0);
+  const totalWidth = colWidths.reduce((sum, w) => sum + w, 0);
   if (shaded) {
     doc.setFillColor(250, 250, 250);
     doc.rect(marginX, y, totalWidth, rowHeight, 'F');
@@ -114,134 +111,174 @@ function drawRowBorders(
   doc.rect(marginX, y, totalWidth, rowHeight, 'S');
 
   let x = marginX;
-  for (let i = 0; i < COL_WIDTHS.length - 1; i++) {
-    x += COL_WIDTHS[i];
+  for (let i = 0; i < colWidths.length - 1; i++) {
+    x += colWidths[i];
     doc.line(x, y, x, y + rowHeight);
   }
 }
 
 export function downloadTrainingAttendancePdf(summary: TrainingPdfSummary): void {
   const doc = new jsPDF({
-    orientation: 'portrait',
+    orientation: 'landscape',
     unit: 'mm',
     format: 'a4',
   });
 
-  const marginX = 14;
-  const pageHeight = doc.internal.pageSize.getHeight();
-  const pageWidth = doc.internal.pageSize.getWidth();
-  const bottomLimit = pageHeight - 16;
+  const marginX = 12;
+  const pageWidth = doc.internal.pageSize.getWidth(); // 297mm in A4 landscape
+  const pageHeight = doc.internal.pageSize.getHeight(); // 210mm in A4 landscape
+  const usableWidth = pageWidth - marginX * 2; // 273mm
+  const bottomLimit = pageHeight - 14;
   const printedAtText = formatTimestampId(Date.now());
 
-  let y = drawDocumentHeader(doc, summary, printedAtText);
-  y = drawTableHeader(doc, marginX, y);
+  const allDates = summary.dates.length > 0 ? summary.dates : ['-'];
+  // Chunk up to 8 date columns per landscape table so every signature cell stays legible
+  const MAX_DATES_PER_BLOCK = 8;
+  const dateChunks: string[][] = [];
+  for (let i = 0; i < allDates.length; i += MAX_DATES_PER_BLOCK) {
+    dateChunks.push(allDates.slice(i, i + MAX_DATES_PER_BLOCK));
+  }
 
-  if (summary.records.length === 0) {
-    // Provide clean printable blank attendance sheet ready for the newly named training
-    doc.setFont('helvetica', 'italic');
-    doc.setFontSize(8.5);
-    doc.setTextColor(115, 115, 115);
-    doc.text(
-      'Belum ada peserta yang mengisi absensi digital untuk pelatihan ini. Lembar siap digunakan:',
-      marginX,
-      y + 5.5,
-    );
-    y += 9;
+  const matrixRows = buildParticipantMatrix(summary.records, allDates);
 
-    const blankRowHeight = 14;
-    for (let i = 0; i < 10; i++) {
-      if (y + blankRowHeight > bottomLimit) {
-        doc.addPage();
-        y = drawDocumentHeader(doc, summary, printedAtText);
-        y = drawTableHeader(doc, marginX, y);
-      }
-      drawRowBorders(doc, marginX, y, blankRowHeight, i % 2 === 1);
-      doc.setFont('helvetica', 'normal');
-      doc.setFontSize(8.5);
-      doc.setTextColor(90, 90, 90);
-      doc.text(String(i + 1), marginX + 2.5, y + 8.2);
-      y += blankRowHeight;
+  dateChunks.forEach((chunkDates, chunkIndex) => {
+    if (chunkIndex > 0) {
+      doc.addPage();
     }
-  } else {
-    const rowHeight = 16;
 
-    summary.records.forEach((rec, index) => {
+    const noColW = 9;
+    const nameColW = 42;
+    const posColW = 30;
+    const totalColW = 14;
+    const fixedWidth = noColW + nameColW + posColW + totalColW;
+    const dateColW = (usableWidth - fixedWidth) / chunkDates.length;
+
+    const colWidths = [
+      noColW,
+      nameColW,
+      posColW,
+      ...chunkDates.map(() => dateColW),
+      totalColW,
+    ];
+    const headers = ['No', 'Nama Lengkap', 'Jabatan', ...chunkDates, 'Total'];
+
+    let y = drawDocumentHeader(doc, summary, printedAtText);
+    y = drawMatrixHeader(doc, marginX, y, colWidths, headers);
+
+    if (matrixRows.length === 0) {
+      const blankRowHeight = 14;
+      for (let i = 0; i < 8; i++) {
+        if (y + blankRowHeight > bottomLimit) {
+          doc.addPage();
+          y = drawDocumentHeader(doc, summary, printedAtText);
+          y = drawMatrixHeader(doc, marginX, y, colWidths, headers);
+        }
+        drawRowBorders(doc, marginX, y, blankRowHeight, colWidths, i % 2 === 1);
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(8);
+        doc.setTextColor(110, 110, 110);
+        doc.text(String(i + 1), marginX + 2.5, y + 8.5);
+        y += blankRowHeight;
+      }
+      return;
+    }
+
+    const rowHeight = 15;
+    matrixRows.forEach((row, idx) => {
       if (y + rowHeight > bottomLimit) {
         doc.addPage();
         y = drawDocumentHeader(doc, summary, printedAtText);
-        y = drawTableHeader(doc, marginX, y);
+        y = drawMatrixHeader(doc, marginX, y, colWidths, headers);
       }
 
-      drawRowBorders(doc, marginX, y, rowHeight, index % 2 === 1);
+      drawRowBorders(doc, marginX, y, rowHeight, colWidths, idx % 2 === 1);
 
       let x = marginX;
       doc.setFont('helvetica', 'normal');
-      doc.setFontSize(8.3);
+      doc.setFontSize(8);
       doc.setTextColor(23, 23, 23);
 
       // No
-      doc.text(String(index + 1), x + 2, y + 8.5);
-      x += COL_WIDTHS[0];
+      doc.text(String(idx + 1), x + 2, y + 8.5);
+      x += noColW;
 
       // Nama Lengkap
       doc.setFont('helvetica', 'bold');
       const nameLines = doc
-        .splitTextToSize(sanitizePdfText(rec.fullName), COL_WIDTHS[1] - 4)
+        .splitTextToSize(sanitizePdfText(row.fullName), nameColW - 4)
         .slice(0, 2);
       doc.text(nameLines, x + 2, y + 6.5);
-      x += COL_WIDTHS[1];
+      x += nameColW;
 
       // Jabatan
       doc.setFont('helvetica', 'normal');
       const posLines = doc
-        .splitTextToSize(sanitizePdfText(rec.position), COL_WIDTHS[2] - 4)
+        .splitTextToSize(sanitizePdfText(row.position), posColW - 4)
         .slice(0, 2);
       doc.text(posLines, x + 2, y + 6.5);
-      x += COL_WIDTHS[2];
+      x += posColW;
 
-      // Tanggal
-      doc.text(sanitizePdfText(rec.sessionDate), x + 2, y + 8.5);
-      x += COL_WIDTHS[3];
-
-      // Tanda Tangan (PNG data URL)
-      if (rec.signatureDataUrl && rec.signatureDataUrl.startsWith('data:image/png;base64,')) {
-        try {
-          doc.addImage(
-            rec.signatureDataUrl,
-            'PNG',
-            x + 2,
-            y + 1.5,
-            COL_WIDTHS[4] - 4,
-            rowHeight - 3,
-          );
-        } catch {
-          doc.setFontSize(7.5);
-          doc.setTextColor(120, 120, 120);
-          doc.text('Tertandatangani', x + 2, y + 8.5);
+      // Date Signature Columns
+      chunkDates.forEach((d) => {
+        const session = row.sessions[d];
+        if (session && session.signatureDataUrl.startsWith('data:image/png;base64,')) {
+          try {
+            const imgPadX = 1.5;
+            const imgW = Math.max(10, dateColW - imgPadX * 2);
+            const imgH = rowHeight - 5.2;
+            doc.addImage(
+              session.signatureDataUrl,
+              'PNG',
+              x + imgPadX,
+              y + 1,
+              imgW,
+              imgH,
+            );
+            const timePart = formatTimestampId(session.submittedAtMs).split(' ')[1] || '';
+            if (timePart) {
+              doc.setFontSize(6.5);
+              doc.setTextColor(120, 120, 120);
+              doc.text(timePart, x + dateColW / 2, y + rowHeight - 1.3, {
+                align: 'center',
+              });
+            }
+          } catch {
+            doc.setFontSize(7.5);
+            doc.setTextColor(120, 120, 120);
+            doc.text('Hadir', x + dateColW / 2, y + 8.5, { align: 'center' });
+          }
+        } else {
+          doc.setFontSize(8);
+          doc.setTextColor(190, 190, 190);
+          doc.text('-', x + dateColW / 2, y + 8.5, { align: 'center' });
         }
-      } else {
-        doc.text('-', x + 2, y + 8.5);
-      }
-      x += COL_WIDTHS[4];
+        x += dateColW;
+      });
 
-      // Waktu Simpan
-      doc.setFontSize(7.8);
-      doc.setTextColor(82, 82, 82);
-      doc.text(sanitizePdfText(formatTimestampId(rec.submittedAtMs)), x + 2, y + 8.5);
+      // Total Hadir
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(8);
+      doc.setTextColor(194, 48, 8);
+      doc.text(
+        `${row.attendedCount}/${allDates.length}`,
+        x + totalColW - 2,
+        y + 8.5,
+        { align: 'right' },
+      );
 
       y += rowHeight;
     });
-  }
+  });
 
-  // Page numbers footer
+  // Footer page numbers
   const totalPages = doc.getNumberOfPages();
   for (let p = 1; p <= totalPages; p++) {
     doc.setPage(p);
     doc.setFont('helvetica', 'normal');
-    doc.setFontSize(8);
+    doc.setFontSize(7.5);
     doc.setTextColor(130, 130, 130);
-    doc.text('Sistem Absensi Digital Pelatihan Karyawan', marginX, pageHeight - 8);
-    doc.text(`Halaman ${p} dari ${totalPages}`, pageWidth - marginX, pageHeight - 8, {
+    doc.text('Sistem Absensi Digital Pelatihan Karyawan', marginX, pageHeight - 6.5);
+    doc.text(`Halaman ${p} dari ${totalPages}`, pageWidth - marginX, pageHeight - 6.5, {
       align: 'right',
     });
   }

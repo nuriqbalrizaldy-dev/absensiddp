@@ -64,6 +64,7 @@ export interface TrainingPdfSummary {
   filename: string;
   isActive: boolean;
   scheduleSummary: string;
+  dates: string[];
   recordCount: number;
   uniqueParticipants: number;
   latestSubmittedAtMs: number;
@@ -393,6 +394,11 @@ export function buildTrainingPdfSummaries(
       0,
     );
     const inferredDates = sortTrainingDates(groupRecords.map((r) => r.sessionDate));
+    const dates = isActive
+      ? activeConfig.dates
+      : inferredDates.length > 0
+        ? inferredDates
+        : activeConfig.dates;
     const scheduleSummary = isActive
       ? activeConfig.scheduleSummary
       : scheduleHints.get(trainingTitle) ||
@@ -403,6 +409,7 @@ export function buildTrainingPdfSummaries(
       filename: buildTrainingPdfFilename(trainingTitle),
       isActive,
       scheduleSummary,
+      dates,
       recordCount: groupRecords.length,
       uniqueParticipants: uniqueSet.size,
       latestSubmittedAtMs,

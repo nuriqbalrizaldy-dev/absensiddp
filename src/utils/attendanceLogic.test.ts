@@ -200,11 +200,13 @@ test('buildTrainingPdfFilename and buildTrainingPdfSummaries produce distinct do
   assert.equal(summaries[0].trainingTitle, nextActiveConfig.title);
   assert.equal(summaries[0].isActive, true);
   assert.equal(summaries[0].recordCount, 0);
+  assert.deepEqual(summaries[0].dates, ['10/12/2026']);
 
   const batch12Summary = summaries.find((s) => s.trainingTitle === batch12Title);
   assert.ok(batch12Summary);
   assert.equal(batch12Summary.recordCount, 1);
   assert.equal(batch12Summary.filename, file12);
+  assert.deepEqual(batch12Summary.dates, ['23/11/2026']);
 
   const onlyBatch13 = filterAttendances(records, { trainingTitle: batch13Title });
   assert.equal(onlyBatch13.length, 1);

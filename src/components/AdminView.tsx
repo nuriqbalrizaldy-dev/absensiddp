@@ -179,11 +179,6 @@ export function AdminView({
     [records, searchQuery, dateFilter, trainingFilter],
   );
 
-  const matrixRows = useMemo(
-    () => buildParticipantMatrix(filteredRecords, config.dates),
-    [filteredRecords, config.dates],
-  );
-
   const uniqueParticipantCount = useMemo(
     () => buildParticipantMatrix(records, config.dates).length,
     [records, config.dates],
@@ -199,6 +194,18 @@ export function AdminView({
     }
     return trainingPdfSummaries[0] ?? null;
   }, [trainingFilter, trainingPdfSummaries]);
+
+  const activeMatrixDates = useMemo(() => {
+    if (trainingFilter !== 'ALL' && activeExportSummary && activeExportSummary.dates.length > 0) {
+      return activeExportSummary.dates;
+    }
+    return config.dates;
+  }, [trainingFilter, activeExportSummary, config.dates]);
+
+  const filteredMatrixRows = useMemo(
+    () => buildParticipantMatrix(filteredRecords, activeMatrixDates),
+    [filteredRecords, activeMatrixDates],
+  );
 
   const handleAddDate = () => {
     setDateAddError(null);
@@ -319,7 +326,7 @@ export function AdminView({
     const safeDateTag = new Date().toISOString().slice(0, 10);
     const activeTitle = trainingFilter !== 'ALL' ? trainingFilter : config.title;
     if (viewMode === 'matrix') {
-      const csv = generateMatrixCsv(matrixRows, config.dates, activeTitle);
+      const csv = generateMatrixCsv(filteredMatrixRows, activeMatrixDates, activeTitle);
       downloadCsvFile(csv, `matriks-absensi-pelatihan-${safeDateTag}.csv`);
     } else {
       const csv = generateAttendanceCsv(filteredRecords, activeTitle);
@@ -521,13 +528,20 @@ export function AdminView({
   return (
     <main className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-6">
       {/* Print-only formal training header */}
-      <div className="hidden print-only mb-6 pb-4 border-b border-neutral-900">
+      <div className="hidden print-only mb-4 pb-3 border-b border-neutral-900">
         <p className="text-xs uppercase tracking-wider text-neutral-600 mb-1">
           Daftar Hadir Resmi Peserta Pelatihan
         </p>
-        <h1 className="text-xl font-bold text-neutral-950">{config.title}</h1>
-        <p className="text-sm text-neutral-700 mt-1 font-mono tabular-nums">
-          Waktu Pelatihan: {config.scheduleSummary}
+        <h1 className="text-lg font-bold text-neutral-950">
+          {trainingFilter !== 'ALL'
+            ? trainingFilter
+            : config.title}
+        </h1>
+        <p className="text-xs text-neutral-700 mt-1 font-mono tabular-nums">
+          Waktu Pelatihan:{' '}
+          {trainingFilter !== 'ALL' && activeExportSummary
+            ? activeExportSummary.scheduleSummary
+            : config.scheduleSummary}
         </p>
       </div>
 
@@ -952,7 +966,7 @@ export function AdminView({
                       <th className="py-3 px-4 min-w-[130px] border-r border-neutral-200">
                         Jabatan
                       </th>
-                      {config.dates.map((d) => (
+                      {activeMatrixDates.map((d) => (
                         <th
                           key={d}
                           className="py-3 px-2 text-center min-w-[110px] border-r border-neutral-200 font-mono tabular-nums"
@@ -966,7 +980,7 @@ export function AdminView({
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-neutral-200 text-xs">
-                    {matrixRows.map((row, index) => (
+                    {filteredMatrixRows.map((row, index) => (
                       <tr key={row.key} className="print-break-inside-avoid">
                         <td className="py-2.5 px-3 font-mono tabular-nums text-neutral-500 border-r border-neutral-200">
                           {index + 1}
@@ -977,7 +991,7 @@ export function AdminView({
                         <td className="py-2.5 px-4 text-neutral-700 border-r border-neutral-200">
                           {row.position}
                         </td>
-                        {config.dates.map((d) => {
+                        {activeMatrixDates.map((d) => {
                           const session = row.sessions[d];
                           return (
                             <td
@@ -1003,7 +1017,7 @@ export function AdminView({
                           );
                         })}
                         <td className="py-2.5 px-3 text-right font-mono tabular-nums font-semibold text-[#C23008]">
-                          {row.attendedCount}/{config.dates.length}
+                          {row.attendedCount}/{activeMatrixDates.length}
                         </td>
                       </tr>
                     ))}
