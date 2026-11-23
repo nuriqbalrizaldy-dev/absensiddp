@@ -396,11 +396,6 @@ export function buildTrainingPdfSummaries(
   const summaries: TrainingPdfSummary[] = [];
   for (const [trainingTitle, groupRecords] of groups.entries()) {
     const isActive = trainingTitle === activeTitle;
-    const uniqueSet = new Set(
-      groupRecords.map(
-        (r) => `${r.fullName.trim().toLowerCase()}__${r.position.trim().toLowerCase()}`,
-      ),
-    );
     const latestSubmittedAtMs = groupRecords.reduce(
       (max, r) => (r.submittedAtMs > max ? r.submittedAtMs : max),
       0,
@@ -411,6 +406,7 @@ export function buildTrainingPdfSummaries(
       : inferredDates.length > 0
         ? inferredDates
         : activeConfig.dates;
+    const uniqueParticipants = buildParticipantMatrix(groupRecords, dates).length;
     const scheduleSummary = isActive
       ? activeConfig.scheduleSummary
       : scheduleHints.get(trainingTitle) ||
@@ -423,7 +419,7 @@ export function buildTrainingPdfSummaries(
       scheduleSummary,
       dates,
       recordCount: groupRecords.length,
-      uniqueParticipants: uniqueSet.size,
+      uniqueParticipants,
       latestSubmittedAtMs,
       records: groupRecords,
     });
@@ -438,36 +434,65 @@ export function buildTrainingPdfSummaries(
   });
 }
 
+function normalizeWhitespace(value: string): string {
+  return value.trim().replace(/\s+/g, ' ');
+}
+
 export function buildParticipantMatrix(
   records: AttendanceRecord[],
   trainingDates: string[],
 ): ParticipantMatrixRow[] {
-  const map = new Map<string, ParticipantMatrixRow>();
+  interface MatrixAccumulator extends ParticipantMatrixRow {
+    latestProfileMs: number;
+  }
+
+  const bucketsByName = new Map<string, MatrixAccumulator[]>();
 
   for (const rec of records) {
-    const normalizedKey = `${rec.fullName.trim().toLowerCase()}__${rec.position.trim().toLowerCase()}`;
-    const trimmedNrik = (rec.nrik ?? '').trim();
-    let row = map.get(normalizedKey);
-    if (!row) {
-      row = {
-        key: normalizedKey,
-        fullName: rec.fullName.trim(),
-        nrik: trimmedNrik,
-        position: rec.position.trim(),
-        sessions: {},
-        attendedCount: 0,
-      };
-      map.set(normalizedKey, row);
-    } else if (trimmedNrik && !row.nrik) {
-      row.nrik = trimmedNrik;
+    const cleanName = normalizeWhitespace(rec.fullName);
+    const nameKey = cleanName.toLowerCase();
+    const cleanPosition = normalizeWhitespace(rec.position);
+    const cleanNrik = (rec.nrik ?? '').trim();
+
+    let buckets = bucketsByName.get(nameKey);
+    if (!buckets) {
+      buckets = [];
+      bucketsByName.set(nameKey, buckets);
     }
 
-    const existing = row.sessions[rec.sessionDate];
-    if (!existing || rec.submittedAtMs >= existing.submittedAtMs) {
-      if (trimmedNrik) {
-        row.nrik = trimmedNrik;
+    // Group same participant even if Jabatan has minor spelling/capitalization differences
+    // (e.g. "Customer Servis" vs "Customer Service"). Keep separate only if two distinct
+    // non-empty 8-digit NRIKs exist under the exact same name.
+    let target = buckets.find(
+      (b) => !cleanNrik || !b.nrik || b.nrik === cleanNrik,
+    );
+
+    if (!target) {
+      target = {
+        key: `${nameKey}__${buckets.length}`,
+        fullName: cleanName,
+        nrik: cleanNrik,
+        position: cleanPosition,
+        sessions: {},
+        attendedCount: 0,
+        latestProfileMs: rec.submittedAtMs,
+      };
+      buckets.push(target);
+    } else {
+      if (cleanNrik && !target.nrik) {
+        target.nrik = cleanNrik;
       }
-      row.sessions[rec.sessionDate] = {
+      if (rec.submittedAtMs >= target.latestProfileMs) {
+        target.latestProfileMs = rec.submittedAtMs;
+        if (cleanName) target.fullName = cleanName;
+        if (cleanPosition) target.position = cleanPosition;
+        if (cleanNrik) target.nrik = cleanNrik;
+      }
+    }
+
+    const existing = target.sessions[rec.sessionDate];
+    if (!existing || rec.submittedAtMs >= existing.submittedAtMs) {
+      target.sessions[rec.sessionDate] = {
         id: rec.id,
         signatureDataUrl: rec.signatureDataUrl,
         submittedAtMs: rec.submittedAtMs,
@@ -475,13 +500,20 @@ export function buildParticipantMatrix(
     }
   }
 
-  const rows = Array.from(map.values()).map((row) => {
-    const attendedCount = trainingDates.filter((d) => Boolean(row.sessions[d])).length;
-    return {
-      ...row,
-      attendedCount,
-    };
-  });
+  const rows: ParticipantMatrixRow[] = [];
+  for (const buckets of bucketsByName.values()) {
+    for (const acc of buckets) {
+      const attendedCount = trainingDates.filter((d) => Boolean(acc.sessions[d])).length;
+      rows.push({
+        key: acc.nrik ? `${acc.key}__${acc.nrik}` : acc.key,
+        fullName: acc.fullName,
+        nrik: acc.nrik,
+        position: acc.position,
+        sessions: acc.sessions,
+        attendedCount,
+      });
+    }
+  }
 
   return rows.sort((a, b) => a.fullName.localeCompare(b.fullName, 'id'));
 }

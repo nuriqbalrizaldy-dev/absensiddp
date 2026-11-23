@@ -261,3 +261,61 @@ test('buildTrainingPdfFilename and buildTrainingPdfSummaries produce distinct do
   assert.equal(onlyBatch13.length, 1);
   assert.equal(onlyBatch13[0].fullName, 'Andi Wijaya');
 });
+
+test('buildParticipantMatrix merges same participant despite Jabatan typo or spacing differences, while separating distinct NRIKs', () => {
+  const records: AttendanceRecord[] = [
+    {
+      id: 'oline-day2',
+      fullName: 'Oline Davania Antoni',
+      nrik: '',
+      position: 'Customer Service',
+      sessionDate: '24/11/2026',
+      signatureDataUrl: VALID_PNG,
+      trainingTitle: DEFAULT_TRAINING_CONFIG.title,
+      submittedAtMs: 1700086400000,
+    },
+    {
+      id: 'oline-day1',
+      fullName: 'Oline  Davania Antoni ',
+      nrik: '',
+      position: 'Customer Servis',
+      sessionDate: '23/11/2026',
+      signatureDataUrl: VALID_PNG,
+      trainingTitle: DEFAULT_TRAINING_CONFIG.title,
+      submittedAtMs: 1700000000000,
+    },
+    {
+      id: 'budi-1',
+      fullName: 'Budi Santoso',
+      nrik: '11111111',
+      position: 'Teller',
+      sessionDate: '23/11/2026',
+      signatureDataUrl: VALID_PNG,
+      trainingTitle: DEFAULT_TRAINING_CONFIG.title,
+      submittedAtMs: 1700000000000,
+    },
+    {
+      id: 'budi-2',
+      fullName: 'Budi Santoso',
+      nrik: '22222222',
+      position: 'Teller',
+      sessionDate: '23/11/2026',
+      signatureDataUrl: VALID_PNG,
+      trainingTitle: DEFAULT_TRAINING_CONFIG.title,
+      submittedAtMs: 1700000500000,
+    },
+  ];
+
+  const matrix = buildParticipantMatrix(records, DEFAULT_TRAINING_DATES);
+  assert.equal(matrix.length, 3);
+
+  const olineRows = matrix.filter((r) => r.fullName === 'Oline Davania Antoni');
+  assert.equal(olineRows.length, 1);
+  assert.equal(olineRows[0].position, 'Customer Service');
+  assert.equal(olineRows[0].attendedCount, 2);
+  assert.ok(olineRows[0].sessions['23/11/2026']);
+  assert.ok(olineRows[0].sessions['24/11/2026']);
+
+  const budiRows = matrix.filter((r) => r.fullName === 'Budi Santoso');
+  assert.equal(budiRows.length, 2);
+});
